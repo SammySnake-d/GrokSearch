@@ -23,6 +23,7 @@ except ImportError:
 
 import asyncio
 import json
+import re
 
 mcp = FastMCP("grok-search")
 
@@ -158,7 +159,6 @@ async def ask_grok(
     await log_info(ctx, "Grok consultation finished!", config.debug_enabled)
 
     # 尝试解析 JSON 结构，降级到原始文本
-    import re
     try:
         json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
         if json_match:
