@@ -85,7 +85,6 @@ async def web_search(query: str, platform: str = "", min_results: int = 3, max_r
     The `question` should be a natural language question or topic for analysis.
     The `context` (optional) provides additional background to help Grok give more relevant answers.
     The `require_sources` (optional, default True) whether to require Grok to provide source links.
-    The `beta_model` (optional) override the model, e.g. "grok-4-5" for beta models.
     
     Returns
     -------
@@ -101,13 +100,12 @@ async def ask_grok(
     question: str,
     context: str = "",
     require_sources: bool = True,
-    beta_model: str = "",
     ctx: Context = None
 ) -> str:
     try:
         api_url = config.grok_api_url
         api_key = config.grok_api_key
-        model = beta_model if beta_model else config.grok_advisor_model
+        model = config.grok_advisor_model
     except ValueError as e:
         error_msg = str(e)
         if ctx:
