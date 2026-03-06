@@ -44,6 +44,16 @@ class Config:
             raise ValueError(f"无法保存配置文件: {str(e)}")
 
     @property
+    def filter_thinking(self) -> bool:
+        """是否过滤模型输出中的 <think>/<thinking> 标签内容，默认开启"""
+        return os.getenv("GROK_FILTER_THINKING", "true").lower() in ("true", "1", "yes")
+
+    @property
+    def ssl_verify(self) -> bool:
+        """是否验证 SSL 证书，默认开启。设为 false 可跳过验证（用于内网/自签名证书）"""
+        return os.getenv("GROK_SSL_VERIFY", "true").lower() in ("true", "1", "yes")
+
+    @property
     def debug_enabled(self) -> bool:
         return os.getenv("GROK_DEBUG", "false").lower() in ("true", "1", "yes")
 
@@ -152,6 +162,8 @@ class Config:
             "GROK_API_KEY": api_key_masked,
             "GROK_MODEL": self.grok_model,
             "GROK_DEBUG": self.debug_enabled,
+            "GROK_FILTER_THINKING": self.filter_thinking,
+            "GROK_SSL_VERIFY": self.ssl_verify,
             "GROK_LOG_LEVEL": self.log_level,
             "GROK_LOG_DIR": str(self.log_dir),
             "TAVILY_ENABLED": self.tavily_enabled,
