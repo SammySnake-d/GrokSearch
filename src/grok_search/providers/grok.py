@@ -173,6 +173,83 @@ class GrokSearchProvider(BaseSearchProvider):
 
         return await self._execute_stream_with_retry(headers, payload, ctx)
 
+    async def consult(
+        self,
+        question: str,
+        context: str = "",
+        require_sources: bool = True,
+        ctx=None
+    ) -> str:
+        """
+        以「智能顾问」模式向 Grok 提问，获取分析、见解、最佳实践及信源链接。
+        """
+        import re
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        source_instruction = ""
+        if require_sources:
+            source_instruction = """
+After your answer, you MUST provide:
+1. A "## Sources" section listing all referenced URLs as markdown links
+2. A "## Suggested Searches" section with 2-3 specific search queries 
+   the user could run with web_search to verify or expand on your answer
+"""
+
+        context_block = f"\n\n[Additional Context]\n{context}" if context else ""
+
+        system_prompt = f"""You are Grok, an advanced AI assistant with access to real-time web search.
+You are acting as an expert advisor. When answering:
+- Provide thorough, well-reasoned analysis
+- Include specific best practices and actionable recommendations  
+- Cite your sources with actual URLs wherever possible
+- Structure your response clearly with headers
+- Be honest about uncertainty and knowledge cutoffs
+- If the question requires current data, proactively search the web
+{source_instruction}
+
+Return your final answer as a JSON object with these fields:
+{{
+  "answer": "<your full markdown-formatted analysis>",
+  "sources": ["<url1>", "<url2>", ...],
+  "follow_up_searches": ["<search query 1>", "<search query 2>"]
+}}"""
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": question + context_block},
+            ],
+            "stream": True,
+        }
+
+        raw_content = await self._execute_stream_with_retry(headers, payload, ctx)
+
+        # 尝试解析 JSON 结构，降级到原始文本
+        try:
+            # 提取 ```json ... ``` 块（如果有）
+            json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_content, re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group(1))
+            else:
+                parsed = json.loads(raw_content)
+            parsed["model_used"] = self.model
+            return json.dumps(parsed, ensure_ascii=False, indent=2)
+        except (json.JSONDecodeError, AttributeError):
+            # 降级：将原始回复包装成结构
+            fallback = {
+                "answer": raw_content,
+                "sources": [],
+                "follow_up_searches": [],
+                "model_used": self.model,
+                "note": "Response was not in structured JSON format"
+            }
+            return json.dumps(fallback, ensure_ascii=False, indent=2)
+
     async def fetch(self, url: str, ctx=None) -> str:
         headers = {
             "Authorization": f"Bearer {self.api_key}",

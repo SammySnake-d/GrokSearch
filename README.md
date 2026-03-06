@@ -44,6 +44,7 @@ Grok Search MCP 是一个基于 [FastMCP](https://github.com/jlowin/fastmcp) 构
 
 - ✅ OpenAI 兼容接口，环境变量配置
 - ✅ 实时网络搜索 + 网页内容抓取
+- ✅ **智能顾问咨询（LLM-to-LLM 通信模式，`ask_grok` 工具）**
 - ✅ 支持指定搜索平台（Twitter、Reddit、GitHub 等）
 - ✅ 配置测试工具（连接测试 + API Key 脱敏）
 - ✅ 动态模型切换（支持切换不同 Grok 模型并持久化保存）
@@ -110,6 +111,8 @@ claude mcp add-json grok-search --scope user '{
 }'
 ```
 
+> 💡 **可选环境变量**：`GROK_ADVISOR_MODEL` — 为 `ask_grok` 工具指定专用模型（如 `grok-4-2-beta`），不设置则默认使用 `GROK_MODEL`。
+
 
 ### Step 2. 验证安装 & 检查MCP配置
 
@@ -161,12 +164,13 @@ claude mcp list
 |------|------------|--------|----------|
 | `web_search` | `query`(必填), `platform`/`min_results`/`max_results`(可选) | `[{title,url,content}]` | 多源聚合/事实核查/最新资讯 |
 | `web_fetch` | `url`(必填) | Structured Markdown | 完整内容获取/深度分析 |
+| `ask_grok` | `question`(必填), `context`/`require_sources`/`beta_model`(可选) | `{answer,sources,follow_up_searches}` | 智能分析/最佳实践/决策支持 |
 | `get_config_info` | 无 | `{api_url,status,test}` | 连接诊断 |
 | `switch_model` | `model`(必填) | `{status,previous_model,current_model}` | 切换Grok模型/性能优化 |
 | `toggle_builtin_tools` | `action`(可选: on/off/status) | `{blocked,deny_list,file}` | 禁用/启用官方工具 |
 
 ## 执行策略
-**查询构建**：广度用 `web_search`，深度用 `web_fetch`，特定平台设 `platform` 参数
+**查询构建**：广度用 `web_search`，深度用 `web_fetch`，分析推理用 `ask_grok`，特定平台设 `platform` 参数
 **搜索执行**：优先摘要 → 关键 URL 补充完整内容 → 结果不足调整查询重试（禁止放弃）
 **结果整合**：交叉验证 + **强制标注来源** `[标题](URL)` + 时间敏感信息注明日期
 
@@ -210,6 +214,7 @@ claude mcp list
 |------|------------|--------|----------|
 | `web_search` | `query`(必填), `platform`/`min_results`/`max_results`(可选) | `[{title,url,content}]` | 多源聚合/事实核查/最新资讯 |
 | `web_fetch` | `url`(必填) | Structured Markdown | 完整内容获取/深度分析 |
+| `ask_grok` | `question`(必填), `context`/`require_sources`/`beta_model`(可选) | `{answer,sources,follow_up_searches}` | 智能分析/最佳实践/决策支持 |
 | `get_config_info` | 无 | `{api_url,status,test}` | 连接诊断 |
 | `switch_model` | `model`(必填) | `{status,previous_model,current_model}` | 切换Grok模型/性能优化 |
 | `toggle_builtin_tools` | `action`(可选: on/off/status) | `{blocked,deny_list,file}` | 禁用/启用官方工具 |
@@ -267,7 +272,7 @@ claude mcp list
 
 #### MCP 工具说明
 
-本项目提供五个 MCP 工具：
+本项目提供六个 MCP 工具：
 
 ##### `web_search` - 网络搜索
 
@@ -308,6 +313,45 @@ claude mcp list
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `url` | string | ✅ | 目标网页 URL |
+
+##### `ask_grok` - 智能顾问咨询（LLM-to-LLM）
+
+向 Grok 作为智能顾问提问，获取深度分析、最佳实践建议及信源链接。与 `web_search` 返回原始搜索结果不同，`ask_grok` 将 Grok 作为推理 AI 顾问使用。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `question` | string | ✅ | - | 自然语言问题或分析主题 |
+| `context` | string | ❌ | `""` | 额外背景信息，帮助 Grok 给出更相关的回答 |
+| `require_sources` | bool | ❌ | `true` | 是否要求 Grok 提供信源链接 |
+| `beta_model` | string | ❌ | `""` | 覆盖模型，如 `"grok-4-5"` |
+
+**返回**：包含 `answer`、`sources`、`follow_up_searches`、`model_used` 的 JSON 对象
+
+<details>
+<summary><b>返回示例</b>（点击展开）</summary>
+
+```json
+{
+  "answer": "## MCP 最佳实践分析\n\n### 1. 架构设计\n...",
+  "sources": [
+    "https://modelcontextprotocol.io/docs",
+    "https://github.com/modelcontextprotocol/specification"
+  ],
+  "follow_up_searches": [
+    "MCP protocol latest specification 2024",
+    "FastMCP vs official MCP SDK comparison"
+  ],
+  "model_used": "grok-4-fast"
+}
+```
+
+**适用场景**：
+- 复杂问题分析："如何设计一个高可用的微服务架构？"
+- 最佳实践咨询："React 项目的状态管理应该如何选择？"
+- 技术决策支持："Kubernetes vs Docker Swarm 的优劣对比"
+- 深度推理："为什么 Rust 的内存安全模型比 C++ 更可靠？"
+
+</details>
 
 **功能**：获取完整网页内容并转换为结构化 Markdown，保留标题层级、列表、表格、代码块等元素
 
