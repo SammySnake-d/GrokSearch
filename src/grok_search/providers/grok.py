@@ -266,7 +266,9 @@ Return your final answer as a JSON object with these fields:
             ],
             "stream": True,
         }
-        return await self._execute_stream_with_retry(headers, payload, ctx)
+        # web_fetch 使用独立的较短超时，避免触发 MCP 客户端的 120s 工具调用超时
+        fetch_timeout = httpx.Timeout(connect=6.0, read=80.0, write=10.0, pool=None)
+        return await self._execute_stream_with_retry(headers, payload, ctx, timeout=fetch_timeout)
 
     async def _parse_streaming_response(self, response, ctx=None) -> str:
         content = ""
@@ -315,9 +317,10 @@ Return your final answer as a JSON object with these fields:
 
         return content
 
-    async def _execute_stream_with_retry(self, headers: dict, payload: dict, ctx=None) -> str:
+    async def _execute_stream_with_retry(self, headers: dict, payload: dict, ctx=None, timeout: httpx.Timeout = None) -> str:
         """执行带重试机制的流式 HTTP 请求"""
-        timeout = httpx.Timeout(connect=6.0, read=120.0, write=10.0, pool=None)
+        if timeout is None:
+            timeout = httpx.Timeout(connect=6.0, read=90.0, write=10.0, pool=None)
 
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=config.ssl_verify) as client:
             async for attempt in AsyncRetrying(
