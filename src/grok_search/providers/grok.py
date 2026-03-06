@@ -250,6 +250,19 @@ Return your final answer as a JSON object with these fields:
             }
             return json.dumps(fallback, ensure_ascii=False, indent=2)
 
+    async def consult_with_messages(self, messages: list, ctx=None) -> str:
+        """直接用完整 messages 列表调用，支持多轮上下文"""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+        }
+        return await self._execute_stream_with_retry(headers, payload, ctx)
+
     async def fetch(self, url: str, ctx=None) -> str:
         headers = {
             "Authorization": f"Bearer {self.api_key}",

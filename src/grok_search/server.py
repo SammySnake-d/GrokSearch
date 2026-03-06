@@ -11,17 +11,18 @@ from fastmcp import FastMCP, Context
 # 尝试使用绝对导入（支持 mcp run）
 try:
     from grok_search.providers.grok import GrokSearchProvider
-    from grok_search.utils import format_search_results
+    from grok_search.utils import format_search_results, advisor_prompt, trim_history
     from grok_search.logger import log_info
     from grok_search.config import config
 except ImportError:
     # 降级到相对导入（pip install -e . 后）
     from .providers.grok import GrokSearchProvider
-    from .utils import format_search_results
+    from .utils import format_search_results, advisor_prompt, trim_history
     from .logger import log_info
     from .config import config
 
 import asyncio
+import json
 
 mcp = FastMCP("grok-search")
 
@@ -73,7 +74,8 @@ async def web_search(query: str, platform: str = "", min_results: int = 3, max_r
     output_schema=None,
     description="""
     Consult Grok Beta LLM as an intelligent advisor for in-depth analysis, best practices,
-    recommendations, and insights on any topic. Unlike web_search which returns raw search
+    recommendations, and insights on any topic. Supports multi-turn conversations by passing
+    conversation_history from previous calls. Unlike web_search which returns raw search
     results, this tool engages Grok as a reasoning AI that can:
     
     - Provide expert analysis and best practice recommendations
@@ -81,11 +83,18 @@ async def web_search(query: str, platform: str = "", min_results: int = 3, max_r
     - Return structured responses with cited source links
     - Offer reasoning chains and explanations
     - Answer complex "how/why/what should I do" questions
+    - Maintain multi-turn conversation context for iterative analysis
     
     The `question` should be a natural language question or topic for analysis.
-    The `context` (optional) provides additional background to help Grok give more relevant answers.
+    The `conversation_history` (optional) is a list of previous messages (user/assistant pairs)
+        from prior turns, enabling multi-turn conversations. Pass the `updated_history` from the
+        previous call's response to continue the conversation.
+    The `context` (optional) provides additional background (e.g. web_search results) to help
+        Grok give more relevant answers.
     The `require_sources` (optional, default True) whether to require Grok to provide source links.
     The `beta_model` (optional) override the model, e.g. "grok-4-5" for beta models.
+    The `max_history_turns` (optional, default 10) limits conversation history to the most recent
+        N turns to manage token usage.
     
     Returns
     -------
@@ -95,13 +104,18 @@ async def web_search(query: str, platform: str = "", min_results: int = 3, max_r
         - `sources`: List of cited URLs/references (if available)
         - `model_used`: The model that generated the response
         - `follow_up_searches`: Suggested web_search queries for further data verification
+        - `updated_history`: The full conversation history including this turn, pass this
+            back as `conversation_history` in the next call to continue the conversation
+        - `turn`: The current turn number (number of user messages in history)
     """
 )
 async def ask_grok(
     question: str,
+    conversation_history: list = [],
     context: str = "",
     require_sources: bool = True,
     beta_model: str = "",
+    max_history_turns: int = 10,
     ctx: Context = None
 ) -> str:
     try:
@@ -116,9 +130,56 @@ async def ask_grok(
 
     grok_provider = GrokSearchProvider(api_url, api_key, model)
     await log_info(ctx, f"Ask Grok: {question}", config.debug_enabled)
-    result = await grok_provider.consult(question, context, require_sources, ctx)
+
+    # 构建本轮 user 消息
+    user_content = question
+    if context:
+        user_content = f"[参考信息]\n{context}\n\n{question}"
+
+    # 截断历史，防止 token 超限
+    trimmed_history = trim_history(conversation_history, max_history_turns)
+
+    # 追加本轮 user 消息到历史
+    new_history = trimmed_history + [
+        {"role": "user", "content": user_content}
+    ]
+
+    # 完整 messages = system + 所有历史（含本轮 user）
+    messages = [{"role": "system", "content": advisor_prompt}] + new_history
+
+    # 调用 Grok
+    raw = await grok_provider.consult_with_messages(messages, ctx)
+
+    # 追加 assistant 回复，形成完整历史供下次使用
+    updated_history = new_history + [
+        {"role": "assistant", "content": raw}
+    ]
+
     await log_info(ctx, "Grok consultation finished!", config.debug_enabled)
-    return result
+
+    # 尝试解析 JSON 结构，降级到原始文本
+    import re
+    try:
+        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
+        if json_match:
+            parsed = json.loads(json_match.group(1))
+        else:
+            parsed = json.loads(raw)
+        parsed["model_used"] = model
+        parsed["updated_history"] = updated_history
+        parsed["turn"] = len([m for m in updated_history if m["role"] == "user"])
+        return json.dumps(parsed, ensure_ascii=False, indent=2)
+    except (json.JSONDecodeError, AttributeError):
+        fallback = {
+            "answer": raw,
+            "sources": [],
+            "follow_up_searches": [],
+            "model_used": model,
+            "note": "Response was not in structured JSON format",
+            "updated_history": updated_history,
+            "turn": len([m for m in updated_history if m["role"] == "user"])
+        }
+        return json.dumps(fallback, ensure_ascii=False, indent=2)
 
 
 @mcp.tool(

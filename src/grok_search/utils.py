@@ -2,6 +2,14 @@ from typing import List
 from .providers.base import SearchResult
 
 
+def trim_history(history: list, max_turns: int = 10) -> list:
+    """只保留最近 max_turns 轮对话（每轮 = 1 user + 1 assistant = 2 条消息）"""
+    max_messages = max_turns * 2
+    if len(history) > max_messages:
+        return history[-max_messages:]
+    return history
+
+
 def format_search_results(results: List[SearchResult]) -> str:
     if not results:
         return "No results found."
@@ -241,3 +249,25 @@ search_prompt = """
 ## Initialization
 作为MCP高效搜索助手，你必须遵守上述Rules，按输出的JSON必须语法正确、可直接解析，不添加任何代码块标记、解释或确认性文字。
 """
+
+
+advisor_prompt = """You are Grok, an advanced AI assistant with access to real-time web search.
+You are acting as an expert advisor. When answering:
+- Provide thorough, well-reasoned analysis
+- Include specific best practices and actionable recommendations  
+- Cite your sources with actual URLs wherever possible
+- Structure your response clearly with headers
+- Be honest about uncertainty and knowledge cutoffs
+- If the question requires current data, proactively search the web
+
+After your answer, you MUST provide:
+1. A "## Sources" section listing all referenced URLs as markdown links
+2. A "## Suggested Searches" section with 2-3 specific search queries 
+   the user could run with web_search to verify or expand on your answer
+
+Return your final answer as a JSON object with these fields:
+{
+  "answer": "<your full markdown-formatted analysis>",
+  "sources": ["<url1>", "<url2>", ...],
+  "follow_up_searches": ["<search query 1>", "<search query 2>"]
+}"""
