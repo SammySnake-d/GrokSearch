@@ -1,5 +1,6 @@
 import httpx
 import json
+import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import List, Optional
@@ -10,6 +11,17 @@ from .base import BaseSearchProvider, SearchResult
 from ..utils import search_prompt, fetch_prompt
 from ..logger import log_info
 from ..config import config
+
+
+def strip_thinking_tags(text: str) -> str:
+    """移除模型输出中的 <think>...</think> 和 <thinking>...</thinking> 标签及其内容"""
+    # 使用 re.DOTALL 使 . 匹配换行符
+    text = re.sub(r'<thinking>.*?</thinking>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    # 处理未闭合的标签（模型可能在开头输出 thinking 但未闭合）
+    text = re.sub(r'<thinking>.*', '', text, flags=re.DOTALL)
+    text = re.sub(r'<think>.*', '', text, flags=re.DOTALL)
+    return text.strip()
 
 
 def get_local_time_info() -> str:
@@ -278,8 +290,10 @@ Return your final answer as a JSON object with these fields:
                     choices = data.get("choices", [])
                     if choices and len(choices) > 0:
                         delta = choices[0].get("delta", {})
-                        if "content" in delta:
-                            content += delta["content"]
+                        # 处理 content 字段（注意可能为 None）
+                        delta_content = delta.get("content")
+                        if delta_content:
+                            content += delta_content
                 except (json.JSONDecodeError, IndexError):
                     continue
                 
@@ -289,11 +303,15 @@ Return your final answer as a JSON object with these fields:
                 data = json.loads(full_text)
                 if "choices" in data and len(data["choices"]) > 0:
                     message = data["choices"][0].get("message", {})
-                    content = message.get("content", "")
+                    content = message.get("content", "") or ""
             except json.JSONDecodeError:
                 pass
         
         await log_info(ctx, f"content: {content}", config.debug_enabled)
+
+        # 根据配置过滤 thinking 标签
+        if config.filter_thinking and content:
+            content = strip_thinking_tags(content)
 
         return content
 
@@ -301,7 +319,7 @@ Return your final answer as a JSON object with these fields:
         """执行带重试机制的流式 HTTP 请求"""
         timeout = httpx.Timeout(connect=6.0, read=120.0, write=10.0, pool=None)
 
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=config.ssl_verify) as client:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(config.retry_max_attempts + 1),
                 wait=_WaitWithRetryAfter(config.retry_multiplier, config.retry_max_wait),
