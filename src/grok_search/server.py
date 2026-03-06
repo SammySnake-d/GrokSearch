@@ -22,6 +22,7 @@ except ImportError:
     from .config import config
 
 import asyncio
+import json
 
 mcp = FastMCP("grok-search")
 
@@ -120,7 +121,6 @@ async def ask_grok(
         result = await grok_provider.consult(question, context, require_sources, ctx)
     except ValueError as e:
         # payload 过大或 400 Bad Request
-        import json as _json
         error_result = {
             "answer": str(e),
             "sources": [],
@@ -128,7 +128,7 @@ async def ask_grok(
             "model_used": model,
             "note": "payload_too_large"
         }
-        return _json.dumps(error_result, ensure_ascii=False, indent=2)
+        return json.dumps(error_result, ensure_ascii=False, indent=2)
     await log_info(ctx, "Grok consultation finished!", config.debug_enabled)
     return result
 

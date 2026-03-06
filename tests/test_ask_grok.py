@@ -195,7 +195,7 @@ class TestConsultPayloadLimit:
         Config._instance = None
         try:
             short_question = "What is AI?"
-            large_context = "x" * 5000  # 远超 2000 字符限制
+            large_context = "x" * 5000  # system_prompt ~941 字符，limit 2000，context 远超剩余空间触发截断
 
             with patch.object(provider, "_execute_stream_with_retry", new_callable=AsyncMock, return_value='{"answer":"ok","sources":[],"follow_up_searches":[]}') as mock_exec:
                 result = await provider.consult(short_question, context=large_context)

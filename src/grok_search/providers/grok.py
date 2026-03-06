@@ -134,6 +134,10 @@ def _estimate_messages_chars(messages: list) -> int:
     return sum(len(m.get("content", "")) for m in messages)
 
 
+# 截断时为格式标记和截断提示文本预留的字符数
+_TRUNCATION_BUFFER = 200
+
+
 class GrokSearchProvider(BaseSearchProvider):
     def __init__(self, api_url: str, api_key: str, model: str = "grok-4-fast"):
         super().__init__(api_url, api_key)
@@ -235,8 +239,7 @@ Return your final answer as a JSON object with these fields:
         if total_chars > max_chars and context:
             system_chars = len(system_prompt)
             question_chars = len(question)
-            # 为 context 保留的可用空间（减去固定部分和缓冲）
-            available_for_context = max_chars - system_chars - question_chars - 200
+            available_for_context = max_chars - system_chars - question_chars - _TRUNCATION_BUFFER
             if available_for_context > 0:
                 truncation_note = "\n\n[注意: context 已被自动截断以符合请求大小限制，建议精简后重试]"
                 truncated_context = context[:available_for_context]
