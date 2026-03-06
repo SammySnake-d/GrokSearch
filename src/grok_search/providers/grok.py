@@ -129,6 +129,11 @@ class _WaitWithRetryAfter(wait_base):
             return None
 
 
+def _estimate_messages_chars(messages: list) -> int:
+    """估算消息列表的总字符数"""
+    return sum(len(m.get("content", "")) for m in messages)
+
+
 class GrokSearchProvider(BaseSearchProvider):
     def __init__(self, api_url: str, api_key: str, model: str = "grok-4-fast"):
         super().__init__(api_url, api_key)
@@ -218,12 +223,49 @@ Return your final answer as a JSON object with these fields:
   "follow_up_searches": ["<search query 1>", "<search query 2>"]
 }}"""
 
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": question + context_block},
+        ]
+
+        max_chars = config.max_payload_chars
+        total_chars = _estimate_messages_chars(messages)
+
+        # 如果 payload 超限且存在 context，先尝试截断 context
+        if total_chars > max_chars and context:
+            system_chars = len(system_prompt)
+            question_chars = len(question)
+            # 为 context 保留的可用空间（减去固定部分和缓冲）
+            available_for_context = max_chars - system_chars - question_chars - 200
+            if available_for_context > 0:
+                truncation_note = "\n\n[注意: context 已被自动截断以符合请求大小限制，建议精简后重试]"
+                truncated_context = context[:available_for_context]
+                context_block = f"\n\n[Additional Context]\n{truncated_context}{truncation_note}"
+                messages[1]["content"] = question + context_block
+                await log_info(ctx, f"Context 已从 {len(context)} 字符截断至 {available_for_context} 字符", True)
+            total_chars = _estimate_messages_chars(messages)
+
+        # 截断后仍超限（问题本身过长），返回错误提示
+        if total_chars > max_chars:
+            error_result = {
+                "answer": (
+                    f"❌ 请求内容过大（约 {total_chars:,} 字符，限制 {max_chars:,} 字符），"
+                    f"无法发送至 API。\n\n"
+                    f"**建议：**\n"
+                    f"1. 精简 question 或 context 的内容\n"
+                    f"2. 将长文本拆分为多次独立提问\n"
+                    f"3. 仅提供关键摘要而非完整原文"
+                ),
+                "sources": [],
+                "follow_up_searches": [],
+                "model_used": self.model,
+                "note": "payload_too_large"
+            }
+            return json.dumps(error_result, ensure_ascii=False, indent=2)
+
         payload = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": question + context_block},
-            ],
+            "messages": messages,
             "stream": True,
         }
 
@@ -327,11 +369,21 @@ Return your final answer as a JSON object with these fields:
                 reraise=True,
             ):
                 with attempt:
-                    async with client.stream(
-                        "POST",
-                        f"{self.api_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                    ) as response:
-                        response.raise_for_status()
-                        return await self._parse_streaming_response(response, ctx)
+                    try:
+                        async with client.stream(
+                            "POST",
+                            f"{self.api_url}/chat/completions",
+                            headers=headers,
+                            json=payload,
+                        ) as response:
+                            response.raise_for_status()
+                            return await self._parse_streaming_response(response, ctx)
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code == 400:
+                            total_chars = _estimate_messages_chars(payload.get("messages", []))
+                            raise ValueError(
+                                f"API 返回 400 Bad Request，可能是请求内容过大"
+                                f"（当前约 {total_chars:,} 字符）。"
+                                f"请精简 question 或 context 后重试。"
+                            ) from e
+                        raise

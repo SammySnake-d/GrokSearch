@@ -70,6 +70,11 @@ class Config:
         return int(os.getenv("GROK_RETRY_MAX_WAIT", "10"))
 
     @property
+    def max_payload_chars(self) -> int:
+        """请求消息体最大字符数，超过此限制将自动截断 context 或拒绝请求。默认 120000"""
+        return int(os.getenv("GROK_MAX_PAYLOAD_CHARS", "120000"))
+
+    @property
     def grok_api_url(self) -> str:
         url = os.getenv("GROK_API_URL")
         if not url:

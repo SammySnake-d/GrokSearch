@@ -116,7 +116,19 @@ async def ask_grok(
 
     grok_provider = GrokSearchProvider(api_url, api_key, model)
     await log_info(ctx, f"Ask Grok: {question}", config.debug_enabled)
-    result = await grok_provider.consult(question, context, require_sources, ctx)
+    try:
+        result = await grok_provider.consult(question, context, require_sources, ctx)
+    except ValueError as e:
+        # payload 过大或 400 Bad Request
+        import json as _json
+        error_result = {
+            "answer": str(e),
+            "sources": [],
+            "follow_up_searches": [],
+            "model_used": model,
+            "note": "payload_too_large"
+        }
+        return _json.dumps(error_result, ensure_ascii=False, indent=2)
     await log_info(ctx, "Grok consultation finished!", config.debug_enabled)
     return result
 
