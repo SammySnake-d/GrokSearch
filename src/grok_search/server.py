@@ -69,6 +69,59 @@ async def web_search(query: str, platform: str = "", min_results: int = 3, max_r
 
 
 @mcp.tool(
+    name="ask_grok",
+    output_schema=None,
+    description="""
+    Consult Grok Beta LLM as an intelligent advisor for in-depth analysis, best practices,
+    recommendations, and insights on any topic. Unlike web_search which returns raw search
+    results, this tool engages Grok as a reasoning AI that can:
+    
+    - Provide expert analysis and best practice recommendations
+    - Synthesize knowledge across multiple domains
+    - Return structured responses with cited source links
+    - Offer reasoning chains and explanations
+    - Answer complex "how/why/what should I do" questions
+    
+    The `question` should be a natural language question or topic for analysis.
+    The `context` (optional) provides additional background to help Grok give more relevant answers.
+    The `require_sources` (optional, default True) whether to require Grok to provide source links.
+    The `beta_model` (optional) override the model, e.g. "grok-4-5" for beta models.
+    
+    Returns
+    -------
+    str
+        A JSON-encoded string containing:
+        - `answer`: Grok's detailed response/analysis
+        - `sources`: List of cited URLs/references (if available)
+        - `model_used`: The model that generated the response
+        - `follow_up_searches`: Suggested web_search queries for further data verification
+    """
+)
+async def ask_grok(
+    question: str,
+    context: str = "",
+    require_sources: bool = True,
+    beta_model: str = "",
+    ctx: Context = None
+) -> str:
+    try:
+        api_url = config.grok_api_url
+        api_key = config.grok_api_key
+        model = beta_model if beta_model else config.grok_advisor_model
+    except ValueError as e:
+        error_msg = str(e)
+        if ctx:
+            await ctx.report_progress(error_msg)
+        return f"配置错误: {error_msg}"
+
+    grok_provider = GrokSearchProvider(api_url, api_key, model)
+    await log_info(ctx, f"Ask Grok: {question}", config.debug_enabled)
+    result = await grok_provider.consult(question, context, require_sources, ctx)
+    await log_info(ctx, "Grok consultation finished!", config.debug_enabled)
+    return result
+
+
+@mcp.tool(
     name="web_fetch",
     output_schema=None,
     description="""

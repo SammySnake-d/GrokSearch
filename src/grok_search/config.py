@@ -110,6 +110,14 @@ class Config:
         return model
 
     @property
+    def grok_advisor_model(self) -> str:
+        """顾问/推理用模型（可覆盖，默认与 grok_model 相同）"""
+        model = os.getenv("GROK_ADVISOR_MODEL")
+        if model:
+            return self._apply_model_suffix(model)
+        return self.grok_model
+
+    @property
     def grok_model(self) -> str:
         if self._cached_model is not None:
             return self._cached_model
@@ -151,6 +159,7 @@ class Config:
             "GROK_API_URL": api_url,
             "GROK_API_KEY": api_key_masked,
             "GROK_MODEL": self.grok_model,
+            "GROK_ADVISOR_MODEL": self.grok_advisor_model,
             "GROK_DEBUG": self.debug_enabled,
             "GROK_LOG_LEVEL": self.log_level,
             "GROK_LOG_DIR": str(self.log_dir),
