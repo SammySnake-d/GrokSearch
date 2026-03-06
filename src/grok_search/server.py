@@ -179,7 +179,7 @@ async def get_config_info() -> str:
         import time
         start_time = time.time()
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=config.ssl_verify) as client:
             response = await client.get(
                 models_url,
                 headers={
